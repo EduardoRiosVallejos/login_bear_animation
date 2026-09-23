@@ -17,10 +17,31 @@ class _LoginScreenState extends State<LoginScreen> {
 //1.1 crear el cerebro de la animacion
 StateMachineController? _controller;
 //SMI: State Machine Input
-SMIBool? _isChecking;
-SMIBool? _isHandsUp;
-SMITrigger? _trigSuccess;
-SMITrigger? _trigFail;
+  SMIBool? _isChecking;
+  SMIBool? _isHandsUp;
+  SMITrigger? _trigSuccess;
+  SMITrigger? _trigFail;
+
+ //1.1 Crear las variables para FocusNode
+  final _emailFocus = FocusNode();
+  final _passwordFocus = FocusNode();
+
+
+  //2.2 Listerners (0uentes/Chismossos)
+  @override
+  void initState() {
+    super.initState();
+    _emailFocus.addListener((){
+      if (_emailFocus.hasFocus){
+        if (_isHandsUp != null){
+        _isHandsUp?.change(false);
+        }
+      }
+    });
+    _passwordFocus.addListener(() {
+      _isHandsUp?.change(_passwordFocus.hasFocus);
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -62,9 +83,11 @@ SMITrigger? _trigFail;
 
               //para email
               TextField(
+                focusNode: _emailFocus,
+
                   onChanged: (value){
                   if (_isHandsUp != null){
-                    _isHandsUp!.change(false);
+                    //_isHandsUp!.change(false);
                   }
                   if (_isChecking == null) return;
                   _isChecking!.change(true);
@@ -80,11 +103,13 @@ SMITrigger? _trigFail;
                 ),
               ),
               SizedBox(height: 10),
+
               //contraeña
               TextField(
+              focusNode: _passwordFocus,
                 onChanged: (value){
                   if (_isChecking != null){
-                    _isChecking!.change(false);
+                   // _isChecking!.change(false);
                   }
                   if (_isHandsUp == null) return;
                   _isHandsUp!.change(true);
@@ -115,5 +140,12 @@ SMITrigger? _trigFail;
           ),
         ),
     );
+  }
+  @override
+  void dispose() {
+    // paso 2.4 Liberar espacio en memoria
+    _emailFocus.dispose();
+    _passwordFocus.dispose();
+    super.dispose();
   }
 }
