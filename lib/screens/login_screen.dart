@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
+import 'package:login_bear_animation/screens/home_screen.dart';
 import 'package:rive/rive.dart';
-import 'dart:async'; // 3.1 Importar el timer
+import 'dart:async';
+import 'package:firebase_auth/firebase_auth.dart'; // 1. Importar Firebase Auth
+import 'package:login_bear_animation/screens/register_screen.dart';
 
 class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key}); // Fixed constructor name
+  const LoginScreen({super.key});
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -15,76 +17,106 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _rememberMe = false;
   bool _rememberMeAnimating = false;
 
-  // 1.1 crear el cerebro de la animacion
   StateMachineController? _controller;
-  // SMI: State Machine Input
   SMIBool? _isChecking;
   SMIBool? _isHandsUp;
   SMITrigger? _trigSuccess;
   SMITrigger? _trigFail;
-
-  // 3.2 Variable del recorrido de la mirada
   SMINumber? _numLook;
 
-  // 3.3 Timer para detener la mirada al dejar de escribir
   Timer? _typingDebounce;
 
-  // 2.1 crear las variables para FocusNode
   final _emailFocus = FocusNode();
   final _passwordFocus = FocusNode();
 
-
-  //4.1 Controllers que manipulan lo que el usuario escribe
   final _emailCtrl = TextEditingController();
   final _passCtrl = TextEditingController();
 
-  //4.2 Errores para mostrarlo en la UI
   String? emailError;
   String? passError;
 
-  //4.3 validadores
   bool isValidEmail(String email){
     final re = RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$');
     return re.hasMatch(email);
   }
   bool isValidPassword(String pass) {
-    final re = RegExp(r'^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$');
-    return re.hasMatch(pass);
+    // Validación flexible o estricta según prefieras (mínimo 6 caracteres para Firebase por defecto)
+    return pass.length >= 6; 
   }
-  //4.4
-  void _onlogin(){
-    //4.5 De lo que escribio el usuario, quitar espacios
-    final email = _emailCtrl.text.trim();
-    final pass = _passCtrl.text;
 
 
-    //4.6 Evaluar los errores
-    final eError = isValidEmail(email) ? null : "invalid email";
-    final pError = isValidPassword(pass) ? null: "invalid password";
+Future<void> _onlogin() async {
+  final email = _emailCtrl.text.trim();
+  final pass = _passCtrl.text;
 
-    //4.7
-    setState((){
-      emailError = eError;
-      passError = pError;
-    });
+  final eError = isValidEmail(email)
+      ? null
+      : "Correo electrónico inválido";
 
+  final pError = isValidPassword(pass)
+      ? null
+      : "La contraseña debe tener al menos 6 caracteres";
 
-    //4.8 Cerrar el teclado y bajar las manos
-    FocusScope.of(context).unfocus(); //Quita el foco
-    _typingDebounce?.cancel();
-    _isChecking?.change(false);
-    _isHandsUp?.change(false);
-    _numLook?.value = 50.0;
+  setState(() {
+    emailError = eError;
+    passError = pError;
+  });
 
+  FocusScope.of(context).unfocus();
+  _typingDebounce?.cancel();
+  _isChecking?.change(false);
+  _isHandsUp?.change(false);
+  _numLook?.value = 50.0;
 
-    //4.9 Activar triggers
-    if (eError == null && pError == null){
+  if (eError == null && pError == null) {
+    try {
+      final credential =
+          await FirebaseAuth.instance.signInWithEmailAndPassword(
+        email: email,
+        password: pass,
+      );
+
+      // El osito celebra el inicio de sesión
       _trigSuccess?.fire();
-    }
-    else {
+
+      // Esperar para permitir que se vea la animación
+      await Future.delayed(const Duration(milliseconds: 1200));
+
+      if (!mounted) return;
+
+      final user = credential.user;
+      if (user == null) return;
+
+      // Ir a la pantalla principal
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (context) => HomeScreen(user: user),
+        ),
+      );
+
+    } on FirebaseAuthException catch (e) {
+      if (!mounted) return;
+
       _trigFail?.fire();
+
+      setState(() {
+        if (e.code == 'user-not-found' ||
+            e.code == 'wrong-password' ||
+            e.code == 'invalid-credential') {
+          passError = "Correo o contraseña incorrectos";
+        } else if (e.code == 'invalid-email') {
+          emailError = "El formato del correo no es válido";
+        } else {
+          passError = e.message;
+        }
+      });
     }
+  } else {
+    _trigFail?.fire();
   }
+}
+
 
   void _toggleRememberMe() {
     if (_rememberMeAnimating) return;
@@ -95,31 +127,112 @@ class _LoginScreenState extends State<LoginScreen> {
     });
   }
 
-  // 2.2 Listeners
+Future<void> _onForgotPassword() async {
+  String email = _emailCtrl.text.trim();
+
+  final result = await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) {
+      return AlertDialog(
+        title: const Text('Recuperar contraseña'),
+        content: TextFormField(
+          initialValue: email,
+          keyboardType: TextInputType.emailAddress,
+          decoration: const InputDecoration(
+            labelText: 'Correo electrónico',
+            hintText: 'ejemplo@gmail.com',
+          ),
+          onChanged: (value) {
+            email = value.trim();
+          },
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(dialogContext, false);
+            },
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(dialogContext, true);
+            },
+            child: const Text('Enviar'),
+          ),
+        ],
+      );
+    },
+  );
+
+  if (!mounted || result != true) return;
+
+  if (!isValidEmail(email)) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Ingresa un correo válido.'),
+        backgroundColor: Colors.redAccent,
+      ),
+    );
+    return;
+  }
+
+  try {
+    await FirebaseAuth.instance.sendPasswordResetEmail(
+      email: email,
+    );
+
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Correo de recuperación enviado. Revisa tu bandeja de entrada.',
+        ),
+        backgroundColor: Colors.green,
+      ),
+    );
+  } on FirebaseAuthException catch (e) {
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Error: ${e.message}'),
+        backgroundColor: Colors.redAccent,
+      ),
+    );
+  }
+}
+
   @override
   void initState() {
     super.initState();
+
+    // Escuchar el estado de la sesión activa en tiempo real
+    FirebaseAuth.instance.authStateChanges().listen((User? user) {
+      if (user != null) {
+        debugPrint("Sesión activa detectada para: ${user.email} 🔒");
+      } else {
+        debugPrint("No hay ninguna sesión activa actualmente.");
+      }
+    });
+
     _emailFocus.addListener(() {
       if (_emailFocus.hasFocus) {
         if (_isHandsUp != null) {
           _isHandsUp?.change(false);
-          // 3.4 Mirada neutra
           _numLook?.value = 50.0;
         }
       }
     });
     _passwordFocus.addListener(() {
-      // manos arriba en el password
       _isHandsUp?.change(_passwordFocus.hasFocus);
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    // Para obtener el tamaño de la pantalla
     final Size size = MediaQuery.of(context).size;
     return Scaffold(
-
       body: SingleChildScrollView(
         child: SafeArea(
           child: Padding(
@@ -132,64 +245,42 @@ class _LoginScreenState extends State<LoginScreen> {
                   child: RiveAnimation.asset(
                     'assets/login-bear.riv',
                     stateMachines: const ['Login Machine'],
-                    // 1.2 vincular animacion
                     onInit: (artboard) {
                       _controller = StateMachineController.fromArtboard(
                         artboard,
                         'Login Machine',
                       );
 
-                      // 1.3 verificar que inicio bien
                       if (_controller == null) return;
-                      // Agrega el controlador al escenario/tablero
                       artboard.addController(_controller!);
-                      // Vinculamos variables
                       _isChecking = _controller!.findSMI('isChecking');
                       _isHandsUp = _controller!.findSMI('isHandsUp');
                       _trigSuccess = _controller!.findSMI('trigSuccess');
                       _trigFail = _controller!.findSMI('trigFail');
-                      // 3.5 Vincular numLook
                       _numLook = _controller!.findSMI('numLook');
                     },
                   ),
                 ),
 
-                // para email
                 const SizedBox(height: 10),
                 TextField(
                   controller: _emailCtrl,
-                  // 2.3 Asignar foco al campo de texto
                   focusNode: _emailFocus,
                   onChanged: (value) {
-                    if (_isHandsUp != null) {
-                      // _isHandsUp!.change(false);
-                    }
                     if (_isChecking == null) return;
                     _isChecking!.change(true);
 
-                    // 3.6 Implementar numLook
-                    // Ajustes de limites del 0 a 100
-                    // 80 es la medida de calibracion
                     final look = (value.length / 60.0 * 100.0).clamp(0.0, 100.0);
-                    // clamp es el rango (abrazadera)
                     _numLook?.value = look;
 
-                    //3.7 Debounce: si vuelve a teclear, reinicia el contador
-                    //cancelar cualquier timer existente
                     _typingDebounce?.cancel();
-                    //crear un nuevo timer
-                    _typingDebounce = Timer(const Duration(seconds: 3), (){
-
-                      //si se cierra la pantalla se cierra el contador
+                    _typingDebounce = Timer(const Duration(seconds: 3), () {
                       if (!mounted) return;
-                      //mirada neutra
                       _isChecking?.change(false);
                     });
-
                   },
                   keyboardType: TextInputType.emailAddress,
                   decoration: InputDecoration(
-                    //4.11 mostrar texto de error
                     errorText: emailError,
                     hintText: 'Email',
                     prefixIcon: const Icon(Icons.email),
@@ -199,23 +290,16 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                 ),
 
-                // contraseña
                 const SizedBox(height: 10),
                 TextField(
-                  //4.10 enlazar controller
                   controller: _passCtrl,
-                  // 2.3 Asignar foco al campo de texto
                   focusNode: _passwordFocus,
                   onChanged: (value) {
-                    if (_isChecking != null) {
-                      // _isChecking!.change(false);
-                    }
                     if (_isHandsUp == null) return;
                     _isHandsUp!.change(true);
                   },
                   obscureText: _obscure,
                   decoration: InputDecoration(
-                    //4.11 mostrar texto de error
                     errorText: passError,
                     hintText: 'Password',
                     prefixIcon: const Icon(Icons.lock),
@@ -224,7 +308,6 @@ class _LoginScreenState extends State<LoginScreen> {
                         _obscure ? Icons.visibility : Icons.visibility_off,
                       ),
                       onPressed: () {
-                        // refrescar el icono
                         setState(() {
                           _obscure = !_obscure;
                         });
@@ -236,14 +319,20 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                 ),
                 const SizedBox(height: 10),
-                //4.12 Texto olvide la contraseña
                 SizedBox(
                   width: size.width,
-                  child: const Text(
-                    'Forgot password?',
-                    //alinear a la derecha
-                    textAlign: TextAlign.right,
-                    style: TextStyle(decoration: TextDecoration.underline),
+                  child: Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton(
+                      onPressed: _onForgotPassword,
+                      child: const Text(
+                        'Forgot password?',
+                        style: TextStyle(
+                          color: Colors.black87,
+                          decoration: TextDecoration.underline,
+                        ),
+                      ),
+                    ),
                   ),
                 ),
                 const SizedBox(height: 10),
@@ -290,19 +379,18 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                 ),
                 const SizedBox(height: 10),
-                //4.13 boton de login
                 MaterialButton(
                   minWidth: size.width,
                   height: 50,
                   color: Colors.pinkAccent,
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12)
+                    borderRadius: BorderRadius.circular(12),
                   ),
-
                   onPressed: _onlogin,
-                  child: Text(
+                  child: const Text(
                     'Login',
-                    style: TextStyle(color: Colors.white)),
+                    style: TextStyle(color: Colors.white),
+                  ),
                 ),
                 const SizedBox(height: 10),
                 SizedBox(
@@ -311,37 +399,42 @@ class _LoginScreenState extends State<LoginScreen> {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       const Text("Don't have an account?"),
-                      TextButton(onPressed: (){},
-                        child: Text('Sign up',
-                        style: TextStyle(
-                          color: Colors.black,
-                          //subrayado
-                          decoration: TextDecoration.underline,
-                          //negritas
-                          fontWeight: FontWeight.bold
-                        ),))
+                      TextButton(
+                        onPressed: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => const RegisterScreen(),
+                            ),
+                          );
+                        },
+                        child: const Text(
+                          'Sign up',
+                          style: TextStyle(
+                            color: Colors.black,
+                            decoration: TextDecoration.underline,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
                     ],
-                  )
-                )
+                  ), // Row
+                ), // SizedBox
               ],
-            ),
-          ),
-        ),
-      ),
-    );
+            ), // Column
+          ), // Padding
+        ), // SafeArea
+      ), // SingleChildScrollView
+    ); // Scaffold
   }
 
   @override
   void dispose() {
-    //4.15 Liberar los controladores
     _emailCtrl.dispose();
     _passCtrl.dispose();
-    // 2.4 Liberar espacio en memoria
     _emailFocus.dispose();
     _passwordFocus.dispose();
     _controller?.dispose();
-    _typingDebounce?.cancel(); //3.9 Eliminar el timer
+    _typingDebounce?.cancel();
     super.dispose();
-
   }
 }
