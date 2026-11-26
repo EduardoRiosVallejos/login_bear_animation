@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:login_bear_animation/screens/home_screen.dart';
+import 'package:login_bear_animation/products_screen.dart';
 import 'package:rive/rive.dart';
 import 'dart:async';
 import 'package:firebase_auth/firebase_auth.dart'; // 1. Importar Firebase Auth
@@ -87,14 +87,13 @@ Future<void> _onlogin() async {
       final user = credential.user;
       if (user == null) return;
 
-      // Ir a la pantalla principal
+      // Ir a la pantalla de productos
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
-          builder: (context) => HomeScreen(user: user),
+          builder: (context) => const ProductsScreen(),
         ),
       );
-
     } on FirebaseAuthException catch (e) {
       if (!mounted) return;
 
